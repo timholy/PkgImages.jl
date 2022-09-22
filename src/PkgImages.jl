@@ -1,24 +1,43 @@
 module PkgImages
 
-using Core: MethodInstance, CodeInstance
+using Core: MethodInstance, CodeInstance, MethodTable, MethodMatch
+using Core.Compiler: BackedgeIterator
+using Base: IdSet, get_world_counter
 using MethodAnalysis
 
-## Move to Base
-
-struct EdgePairs
-    itr::Core.Compiler.BackedgeIterator
+struct InvokeEdge{T}
+    invokesig
+    node::T
 end
-Base.pairs(itr::Core.Compiler.BackedgeIterator) = EdgePairs(itr)
-function Base.iterate(itr::EdgePairs, i::Int=1)
-    i0 = i
-    ret = iterate(itr.itr)
-    ret === nothing && return nothing
-    edge, i = ret
-    return i0:i-1 => edge, i
+const InvokeEdgeMI = InvokeEdge{MethodInstance}
+
+"""
+    ExternalTarget(invokesig, callee, matches)
+
+A callee "target" (half of a forward-edge) with a record of how that target was assigned.
+
+Kinds of targets:
+- `ExternalTarget(nothing, callee::MethodInstance, matches::Vector{Methods})`: standard concrete inferrable dispatch
+- `ExternalTarget(invokesig, callee::MethodInstance, matches::Vector{Methods})`: `invoke`-dispatch
+- `ExternalTarget(sig, nothing, matches::Vector{Methods})`: abstract dispatch using a MethodTable
+"""
+struct ExternalTarget
+    invokesig
+    callee::Union{MethodInstance,Nothing}
+    matches::Vector{Methods}
 end
+ExternalTarget(@nospecialize(invokesig), callee) = ExternalTarget(invokesig, callee, method.(get_matches(invokesig, callee)))
 
-## End move to Base
+method(match::MethodMatch) = match.method
 
+# NOTE: Base._methods_by_ftype/jl_matching_methods need to take an additional `intersection::Bool` argument and pass it
+#       to ml_matches
+get_matches(@nospecialize(invokesig::Type), ::MethodInstance, world=get_world_counter()) =
+    Base._methods_by_ftype(invokesig, -1, world, false) # `invoke` subtyping dispatch
+get_matches(@nospecialize(invokesig), callee, world=get_world_counter()) =
+    Base._methods_by_ftype(callee === nothing ? invokesig : callee.specTypes, -1, world, true)   # intersectional dispatch
+
+include("base_features.jl")
 include("serialize.jl")
 include("deserialize.jl")
 
