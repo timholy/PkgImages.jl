@@ -25,9 +25,10 @@ Kinds of targets:
 struct ExternalTarget
     invokesig
     callee::Union{MethodInstance,Nothing}
-    matches::Vector{Methods}
+    matches::Vector{Method}
 end
 ExternalTarget(@nospecialize(invokesig), callee) = ExternalTarget(invokesig, callee, method.(get_matches(invokesig, callee)))
+ExternalTarget(target::Target) = ExternalTarget(target.invokesig, target.node)
 
 method(match::MethodMatch) = match.method
 
