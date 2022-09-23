@@ -111,12 +111,12 @@ function insert_backedge!(::Nothing, @nospecialize(invokesig), caller)
 end
 
 function merge_backedges!(active, inactive)
-    activeset = Set{InvokeEdgeMI}()
+    activeset = Set{CalledBy}()
     for (invokesig, caller) in BackedgeIterator(active)
-        push!(activeset, InvokeEdgeMI(invokesig, caller))
+        push!(activeset, CalledBy(invokesig, caller))
     end
     for (invokesig, caller) in BackedgeIterator(inactive)
-        edge = InvokeEdgeMI(invokesig, caller)
+        edge = CalledBy(invokesig, caller)
         edge ∉ activeset && insert_backedge!(active, invokesig, caller)
     end
     return active

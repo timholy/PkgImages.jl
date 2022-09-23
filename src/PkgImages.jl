@@ -9,7 +9,8 @@ struct InvokeEdge{T}
     invokesig
     node::T
 end
-const InvokeEdgeMI = InvokeEdge{MethodInstance}
+const CalledBy = InvokeEdge{MethodInstance}               # specifies a caller, including any `invoke` signature used by the caller
+const Target = InvokeEdge{Union{MethodInstance,Nothing}}  # specifies a callee (`nothing` is for an abstract call to MethodTable)
 
 """
     ExternalTarget(invokesig, callee, matches)
