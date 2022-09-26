@@ -37,7 +37,8 @@ function needed_by_worklist!(is_needed::AbstractDict{MethodInstance,Union{Bool,M
         return false
     end
     is_needed[mi] = missing
-    for (_, caller) in BackedgeIterator(mi.backedges)
+    for pr in BackedgeIterator(mi.backedges)
+        (; caller) = pr
         if caller isa MethodInstance
             if needed_by_worklist!(is_needed, caller, worklist)
                 is_needed[mi] = true
@@ -83,9 +84,10 @@ function split_internal_external(worklist, newly_inferred::AbstractSet)
         item === Main && return false
         if item isa MethodTable && isdefined(item, :backedges) && item.module ∉ worklist
             # This MethodTable will not be cached, but let's see if it's a target of a cached item
-            for (callsig, caller) in BackedgeIterator(item.backedges)
+            for pr in BackedgeIterator(item.backedges)
+                (; sig, caller) = pr
                 if caller ∈ newly_inferred  # not all newly-inferred MIs will be cached, but all cached MIs are newly-inferred
-                    idx = get!(targets, Target(callsig, nothing), length(targets)+1)
+                    idx = get!(targets, Target(sig, nothing), length(targets)+1)
                     push!(get!(Vector{Int}, caller_targetidxs, caller), idx)
                 end
             end
@@ -111,9 +113,10 @@ function split_internal_external(worklist, newly_inferred::AbstractSet)
     external_method_instances = MethodInstance[]
     for (mi, iscached) in is_cached
         if !iscached
-            for (invokesig, caller) in BackedgeIterator(mi.backedges)   # backedges must be defined as mi would otherwise not be needed
+            for pr in BackedgeIterator(mi.backedges)   # backedges must be defined as mi would otherwise not be needed
+                (; sig, caller) = pr
                 if get(is_cached, caller, false)
-                    idx = get!(targets, Target(invokesig, mi), length(targets)+1)
+                    idx = get!(targets, Target(sig, mi), length(targets)+1)
                     push!(get!(Vector{Int}, caller_targetidxs, caller), idx)
                 end
             end

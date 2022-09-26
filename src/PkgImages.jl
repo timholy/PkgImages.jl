@@ -34,10 +34,12 @@ method(match::MethodMatch) = match.method
 
 # NOTE: Base._methods_by_ftype/jl_matching_methods need to take an additional `intersection::Bool` argument and pass it
 #       to ml_matches
-get_matches(@nospecialize(invokesig::Type), ::MethodInstance, world=get_world_counter()) =
-    Base._methods_by_ftype(invokesig, -1, world, false) # `invoke` subtyping dispatch
+function get_matches(@nospecialize(invokesig::Type), mi::MethodInstance, world=get_world_counter())
+    mt = ccall(:jl_method_get_table, Any, (Method,), mi.def)::MethodTable
+    return first(Core.Compiler._findsup(invokesig, mt, world))
+end
 get_matches(@nospecialize(invokesig), callee, world=get_world_counter()) =
-    Base._methods_by_ftype(callee === nothing ? invokesig : callee.specTypes, -1, world, true)   # intersectional dispatch
+    Base._methods_by_ftype(callee === nothing ? invokesig : callee.specTypes, -1, world)   # intersectional dispatch
 
 include("base_features.jl")
 include("serialize.jl")

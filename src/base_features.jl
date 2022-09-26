@@ -1,6 +1,6 @@
 ## Features in Base that might see wider usage and may deserve PRs on their own
 
-Base.iterate(itr::BackedgeIterator, state...) = Core.Compiler.iterate(itr, state...)
+# Base.iterate(itr::BackedgeIterator, state...) = Core.Compiler.iterate(itr, state...)
 
 # Rework SkipMissing as SkipValue and implement `skipnothing`
 skipnothing(itr) = SkipValue{Base.nonnothingtype(eltype(itr))}(itr, nothing)
