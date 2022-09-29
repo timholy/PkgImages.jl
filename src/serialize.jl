@@ -68,7 +68,7 @@ split the entire system into categories with different caching needs:
     - `caller_targetidxs` is the complement to `targets`, it lists `caller => targetidxs` pairs
       where `targetidxs` is the set of `target` indices needed by `caller`.
 """
-function split_internal_external(worklist, newly_inferred::AbstractSet)
+function split_internal_external(worklist, newly_inferred::AbstractSet; extra_modules=Module[])
     # outputs to compute (Dicts will be converted on output)
     method_extensions = Method[]
     targets = Dict{Target,Int}()   # uncached items that are called by cached items
@@ -76,52 +76,57 @@ function split_internal_external(worklist, newly_inferred::AbstractSet)
     # working storage
     is_needed = Dict{MethodInstance,Union{Bool,Missing}}()   # includes all MIs
     is_cached = Dict{MethodInstance,Bool}()   # includes needed MIs
+    we_own_callable = Dict{MethodInstance,Bool}()   # if we own the callable, nothing could have invalidated the edge
 
-    visit_withmodule() do item, mod  # visit the whole system
-        if item isa Module
-            println(item)
-        end
-        item === Main && return false
-        if item isa MethodTable && isdefined(item, :backedges) && item.module ∉ worklist
-            # This MethodTable will not be cached, but let's see if it's a target of a cached item
-            for pr in BackedgeIterator(item.backedges)
-                (; sig, caller) = pr
-                if caller ∈ newly_inferred  # not all newly-inferred MIs will be cached, but all cached MIs are newly-inferred
-                    idx = get!(targets, Target(sig, nothing), length(targets)+1)
-                    push!(get!(Vector{Int}, caller_targetidxs, caller), idx)
+    allmods = union(Base.loaded_modules_array(), extra_modules)
+    for visitmod in allmods
+        visit_withmodule(visitmod, nothing) do item, mod  # visit the whole system
+            item === Main && return false
+            if item isa MethodTable && isdefined(item, :backedges) && item.module ∉ worklist
+                # This MethodTable will not be cached, but let's see if it's a target of a cached item
+                for pr in BackedgeIterator(item.backedges)
+                    (; sig, caller) = pr
+                    if caller ∈ newly_inferred  # not all newly-inferred MIs will be cached (they may not be needed by the worklist), but all cached MIs are newly-inferred
+                        idx = get!(targets, Target(sig, nothing), length(targets)+1)
+                        push!(get!(Vector{Int}, caller_targetidxs, caller), idx)
+                    end
                 end
+                return true
+            end
+            if item isa Method
+                # Check whether the worklist added this method to an external (non-worklist) function
+                mod ∉ worklist && item.module ∈ worklist && push!(method_extensions, item)
+                return true # continue on to the MethodInstances
+            end
+            if item isa MethodInstance
+                # Determine whether this MI is needed (directly or indirectly) by anything in the worklist,
+                # and if so whether it will be cached.
+                if needed_by_worklist!(is_needed, item, worklist)
+                    we_own_callable[item] = mod ∈ worklist
+                    is_cached[item] = item.precompiled || getmodule(item) ∈ worklist || item ∈ newly_inferred ||
+                                        (m = item.def; m isa Method && m ∈ method_extensions)
+                end
+                return false
             end
             return true
         end
-        if item isa Method
-            # Check whether the worklist added this method to an external (non-worklist) function
-            mod ∉ worklist && item.module ∈ worklist && push!(method_extensions, item)
-            return true # continue on to the MethodInstances
-        end
-        if item isa MethodInstance
-            # Determine whether this MI is needed (directly or indirectly) by anything in the worklist,
-            # and if so whether it will be cached.
-            if needed_by_worklist!(is_needed, item, worklist)
-                is_cached[item] = item.precompiled || getmodule(item) ∈ worklist || item ∈ newly_inferred ||
-                                    (m = item.def; m isa Method && m ∈ method_extensions)
-            end
-            return false
-        end
-        return true
     end
     # Assemble the remaining forward edges to external targets, and collect the to-be-cached external MethodInstances
     external_method_instances = MethodInstance[]
-    for (mi, iscached) in is_cached
-        if !iscached
-            for pr in BackedgeIterator(mi.backedges)   # backedges must be defined as mi would otherwise not be needed
-                (; sig, caller) = pr
-                if get(is_cached, caller, false)
-                    idx = get!(targets, Target(sig, mi), length(targets)+1)
-                    push!(get!(Vector{Int}, caller_targetidxs, caller), idx)
+    for (mi, own) in we_own_callable
+        if !own
+            if isdefined(mi, :backedges)
+                for pr in BackedgeIterator(mi.backedges)
+                    (; sig, caller) = pr
+                    if get(is_cached, caller, false)
+                        idx = get!(targets, Target(sig, mi), length(targets)+1)
+                        push!(get!(Vector{Int}, caller_targetidxs, caller), idx)
+                    end
                 end
             end
-        elseif getmodule(mi) ∉ worklist && mi ∈ newly_inferred
-            push!(external_method_instances, mi)
+            if getmodule(mi) ∉ worklist && mi ∈ newly_inferred
+                push!(external_method_instances, mi)
+            end
         end
     end
     # Convert the outputs & return
@@ -129,4 +134,4 @@ function split_internal_external(worklist, newly_inferred::AbstractSet)
     caller_targetidxs = collect(caller_targetidxs)
     return method_extensions, external_method_instances, targets, caller_targetidxs
 end
-split_internal_external(worklist, newly_inferred) = split_internal_external(worklist, Set(newly_inferred))
+split_internal_external(worklist, newly_inferred; kwargs...) = split_internal_external(worklist, Set(newly_inferred); kwargs...)
